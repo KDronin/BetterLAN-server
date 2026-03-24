@@ -1,6 +1,6 @@
 # BetterLAN-server
 
-Use with the mod "BetterLAN".
+Use with the mod ["BetterLAN"](https://github.com/KDronin/BetterLAN).
 
 ↓↓↓One-click installation script↓↓↓
 
