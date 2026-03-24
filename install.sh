@@ -3,16 +3,20 @@ INSTALL_DIR="/opt/betterlan-server"
 SERVICE_FILE="/etc/systemd/system/betterlan.service"
 DOWNLOAD_URL="https://github.com/KDronin/BetterLAN-server/releases/download/v0.0.1/betterlan-server" 
 
-echo "=========================================="
-echo "欢迎使用 BetterLan 云端节点一键安装程序"
-echo "=========================================="
+echo "======================================"
+echo "欢迎使用 BetterLAN 云端节点一键安装程序"
+echo "======================================"
 echo ""
 
-read -p "输入节点绑定的 IP 地址 [默认 0.0.0.0]: " USER_IP
-USER_IP=${USER_IP:-0.0.0.0}
+read -p "请输入节点绑定的 IP 地址 [默认 0.0.0.0]: " USER_IP </dev/tty
+if [ -z "$USER_IP" ]; then
+    USER_IP="0.0.0.0"
+fi
 
-read -p "输入自定义节点端口 [默认 45678]: " USER_PORT
-USER_PORT=${USER_PORT:-45678}
+read -p "请输入自定义节点端口 [默认 45678]: " USER_PORT </dev/tty
+if [ -z "$USER_PORT" ]; then
+    USER_PORT=45678
+fi
 
 echo ""
 echo "配置信息确认: "
