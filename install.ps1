@@ -1,6 +1,6 @@
-Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "======================================" -ForegroundColor Cyan
 Write-Host "欢迎使用 BetterLan 云端节点一键安装程序" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
 $InstallDir = "C:\BetterLanServer"
@@ -27,26 +27,38 @@ if (-Not (Test-Path $InstallDir)) {
 }
 Set-Location $InstallDir
 
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($False)
 $Config = @{
     ip = $UserIP
     port = [int]$UserPort
 }
-$Config | ConvertTo-Json | Set-Content -Path "config.json" -Encoding UTF8
+$JsonStr = $Config | ConvertTo-Json
+[System.IO.File]::WriteAllText("$InstallDir\config.json", $JsonStr, $Utf8NoBom)
 Write-Host "[+] 配置文件 config.json 生成完毕" -ForegroundColor Green
-
 Write-Host "[+] 正在下载服务端程序..." -ForegroundColor Yellow
 try {
     Invoke-WebRequest -Uri $DownloadUrl -OutFile "betterlan-server.exe"
 } catch {
-    Write-Host "下载失败！请检查网络或联系作者" -ForegroundColor Red
+    Write-Host "下载失败！请检查网络或通知作者" -ForegroundColor Red
     Read-Host "按回车键退出..."
     exit
 }
 Write-Host "[+] 核心程序下载完成" -ForegroundColor Green
-
 Write-Host "[+] 正在生成启动脚本..." -ForegroundColor Yellow
-$BatContent = "@echo off`ntitle BetterLan Relay Server (运行中)`ncolor 0A`ncd /d %~dp0`necho ==========================================`necho BetterLan 云端节点已启动！请勿关闭此窗口。`necho ==========================================`nbetterlan-server.exe`npause"
-Set-Content -Path "启动节点.bat" -Value $BatContent -Encoding Default
+$BatLines = @(
+    "@echo off"
+    "chcp 65001 >nul"
+    "title BetterLan Relay Server (运行中)"
+    "color 0A"
+    "cd /d ""%~dp0"""
+    "echo =========================================="
+    "echo BetterLan 云端节点已启动！请勿关闭此窗口。"
+    "echo =========================================="
+    "betterlan-server.exe"
+    "pause"
+)
+$BatContent = $BatLines -join "`r`n"
+[System.IO.File]::WriteAllText("$InstallDir\启动节点.bat", $BatContent, $Utf8NoBom)
 Write-Host "[+] 启动脚本 [启动节点.bat] 生成完毕" -ForegroundColor Green
 
 $RegPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
@@ -71,8 +83,8 @@ if ($StartNow) {
 }
 
 Write-Host "`n==========================================" -ForegroundColor Cyan
-Write-Host "节点部署彻底完成！" -ForegroundColor Green
+Write-Host "节点部署完成！" -ForegroundColor Green
 Write-Host "程序目录: $InstallDir"
-Write-Host "如需手动启动，请双击目录下的【启动节点.bat】。"
+Write-Host "如需手动启动或重启，请双击目录下的【启动节点.bat】。"
 Write-Host "==========================================" -ForegroundColor Cyan
 Read-Host "按回车键退出安装程序..."
