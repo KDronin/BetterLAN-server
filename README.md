@@ -14,3 +14,8 @@ For Linux systems, simply enter the following command in the terminal:
 curl -sSL https://raw.githubusercontent.com/KDronin/BetterLAN-server/refs/heads/main/install.sh | bash
 ```
 
+For Windows systems, run PowerShell as an administrator and enter the following command in it:
+
+```
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex (Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/KDronin/BetterLAN-server/refs/heads/main/install.ps1')
+```
