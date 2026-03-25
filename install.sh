@@ -1,7 +1,7 @@
 #!/bin/bash
 INSTALL_DIR="/opt/betterlan-server"
 SERVICE_FILE="/etc/systemd/system/betterlan.service"
-DOWNLOAD_URL="https://github.com/KDronin/BetterLAN-server/releases/download/v0.0.1/betterlan-server" 
+DOWNLOAD_URL="https://github.com/KDronin/BetterLAN-server/releases/download/v0.0.1/betterlan-server-linux-amd64" 
 
 echo "======================================"
 echo "欢迎使用 BetterLAN 云端节点一键安装程序"
