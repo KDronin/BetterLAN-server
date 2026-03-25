@@ -43,13 +43,13 @@ func generateSessionID() string {
 func main() {
 	configFile, err := os.ReadFile("config.json")
 	if err != nil {
-		fmt.Println("致命错误: 未找到 config.json。请先使用官方一键安装脚本进行部署！")
+		fmt.Println("错误: 未找到 config.json。请先使用官方一键安装脚本进行部署！")
 		os.Exit(1)
 	}
 
 	var config Config
 	if err := json.Unmarshal(configFile, &config); err != nil {
-		fmt.Println("致命错误: config.json 格式损坏，解析失败:", err)
+		fmt.Println("错误: config.json 格式损坏，解析失败:", err)
 		os.Exit(1)
 	}
 
