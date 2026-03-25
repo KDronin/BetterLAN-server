@@ -52,7 +52,7 @@ $BatLines = @(
     "color 0A"
     "cd /d ""%~dp0"""
     "echo =========================================="
-    "echo BetterLan 云端节点已启动！请勿关闭此窗口。"
+    "echo BetterLAN server正在运行，请勿关闭此窗口。"
     "echo =========================================="
     "betterlan-server.exe"
     "pause"
