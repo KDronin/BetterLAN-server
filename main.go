@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -22,17 +21,13 @@ type Config struct {
 
 type Session struct {
 	guestConn net.Conn
-}
-
-type GeoInfo struct {
-	Zh string
-	En string
+	createdAt time.Time
 }
 
 type Presence struct {
 	Name       string
 	AuthStatus string
-	IP         string
+	Ping       string
 	LastSeen   time.Time
 }
 
@@ -47,7 +42,6 @@ type Group struct {
 var (
 	groups   = make(map[string]*Group)
 	globalMu sync.RWMutex
-	geoCache sync.Map
 )
 
 func generateSessionID() string {
@@ -56,62 +50,28 @@ func generateSessionID() string {
 	return hex.EncodeToString(b)
 }
 
-func getGeoAsync(ipStr string) {
-	if _, loaded := geoCache.LoadOrStore(ipStr, &GeoInfo{Zh: "查询中...", En: "Fetching..."}); loaded {
-		return
-	}
-
-	go func() {
-		fetchGeo := func(lang string) string {
-			client := http.Client{Timeout: 3 * time.Second}
-			resp, err := client.Get(fmt.Sprintf("http://ipwho.is/%s?lang=%s", ipStr, lang))
-			if err != nil { return "" }
-			defer resp.Body.Close()
-			var res map[string]interface{}
-			json.NewDecoder(resp.Body).Decode(&res)
-			
-			if success, ok := res["success"].(bool); ok && success {
-				country, _ := res["country"].(string)
-				region, _ := res["region"].(string)
-				if region != "" && region != country {
-					return fmt.Sprintf("%s %s", country, region)
-				}
-				return country
-			}
-			return ""
-		}
-
-		enGeo := fetchGeo("en")
-		if enGeo == "" { enGeo = "Unknown Region" }
-		zhGeo := fetchGeo("zh-CN")
-		if zhGeo == "" { zhGeo = "未知地域" }
-
-		geoCache.Store(ipStr, &GeoInfo{Zh: zhGeo, En: enGeo})
-	}()
-}
-
 func main() {
 	configFile, err := os.ReadFile("config.json")
 	if err != nil {
-		fmt.Println("错误: 未找到 config.json。")
+		fmt.Println("ERROR: config.json not found.")
 		os.Exit(1)
 	}
 
 	var config Config
 	if err := json.Unmarshal(configFile, &config); err != nil {
-		fmt.Println("错误: config.json 格式损坏:", err)
+		fmt.Println("ERROR: Failed to parse config.json:", err)
 		os.Exit(1)
 	}
 
 	addr := fmt.Sprintf("%s:%d", config.IP, config.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Printf("启动服务失败: %v\n", err)
+		fmt.Printf("ERROR: Failed to start server: %v\n", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	fmt.Printf("BetterLAN-server已启动，当前绑定 %s\n", addr)
+	fmt.Printf("BetterLAN server started on %s\n", addr)
 
 	go func() {
 		for {
@@ -124,6 +84,12 @@ func main() {
 						delete(grp.presences, name)
 					}
 				}
+				for sessionID, session := range grp.pendingSessions {
+					if time.Since(session.createdAt) > 60*time.Second {
+						session.guestConn.Close()
+						delete(grp.pendingSessions, sessionID)
+					}
+				}
 				grp.mu.Unlock()
 			}
 			globalMu.RUnlock()
@@ -133,12 +99,17 @@ func main() {
 	for {
 		conn, err := listener.Accept()
 		if err != nil { continue }
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			tcpConn.SetKeepAlive(true)
+			tcpConn.SetKeepAlivePeriod(30 * time.Second)
+		}
 		go handleConnection(conn)
 	}
 }
 
 func handleConnection(conn net.Conn) {
-	reader := bufio.NewReader(conn)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	reader := bufio.NewReader(io.LimitReader(conn, 2048)) 
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		conn.Close()
@@ -153,6 +124,7 @@ func handleConnection(conn net.Conn) {
 	}
 
 	action := parts[0]
+	conn.SetReadDeadline(time.Time{})
 
 	switch action {
 	case "PING":
@@ -163,10 +135,9 @@ func handleConnection(conn net.Conn) {
 		handlePresence := func(p []string) {
 			if len(p) < 5 { return }
 			grp, pwd, name, authStatus := p[1], p[2], p[3], p[4]
-			clientLang := "en"
-			if len(p) >= 6 { clientLang = p[5] }
-			isZh := strings.Contains(strings.ToLower(clientLang), "zh")
-			
+			clientPing := "0"
+			if len(p) >= 7 { clientPing = p[6] }
+
 			globalMu.Lock()
 			group, exists := groups[grp]
 			if !exists {
@@ -181,25 +152,17 @@ func handleConnection(conn net.Conn) {
 			globalMu.Unlock()
 
 			if group.password == pwd {
-				ipStr, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-				getGeoAsync(ipStr)
-
 				group.mu.Lock()
 				group.presences[name] = &Presence{
 					Name:       name,
 					AuthStatus: authStatus,
-					IP:         ipStr,
+					Ping:       clientPing,
 					LastSeen:   time.Now(),
 				}
 
 				var list []string
 				for _, pres := range group.presences {
-					geoStr := "Unknown"
-					if val, ok := geoCache.Load(pres.IP); ok {
-						info := val.(*GeoInfo)
-						if isZh { geoStr = info.Zh } else { geoStr = info.En }
-					}
-					list = append(list, fmt.Sprintf("%s:%s:%s", pres.Name, pres.AuthStatus, geoStr))
+					list = append(list, fmt.Sprintf("%s:%s:%s", pres.Name, pres.AuthStatus, pres.Ping))
 				}
 				group.mu.Unlock()
 
@@ -215,9 +178,7 @@ func handleConnection(conn net.Conn) {
 			nextParts := strings.Split(strings.TrimSpace(nextLine), "|")
 			if len(nextParts) > 0 && nextParts[0] == "PRESENCE" {
 				handlePresence(nextParts)
-			} else {
-				break
-			}
+			} else { break }
 		}
 		conn.Close()
 
@@ -233,9 +194,7 @@ func handleConnection(conn net.Conn) {
 				for name := range group.hosts { hostNames = append(hostNames, name) }
 				group.mu.RUnlock()
 				conn.Write([]byte(strings.Join(hostNames, ",") + "\n"))
-			} else {
-				conn.Write([]byte("ERROR|Auth Failed\n"))
-			}
+			} else { conn.Write([]byte("ERROR|Auth Failed\n")) }
 		}
 		conn.Close()
 
@@ -259,13 +218,23 @@ func handleConnection(conn net.Conn) {
 				conn.Close()
 				return
 			}
+			
 			group.mu.Lock()
 			group.hosts[name] = conn
 			group.mu.Unlock()
-			buf := make([]byte, 10)
-			conn.Read(buf) 
+			
+			buf := make([]byte, 1024)
+			for {
+				_, err := conn.Read(buf)
+				if err != nil {
+					break
+				}
+			}
+			
 			group.mu.Lock()
-			delete(group.hosts, name)
+			if group.hosts[name] == conn {
+				delete(group.hosts, name)
+			}
 			group.mu.Unlock()
 		}
 		conn.Close()
@@ -273,6 +242,11 @@ func handleConnection(conn net.Conn) {
 	case "GUEST_JOIN":
 		if len(parts) >= 4 {
 			grp, pwd, target := parts[1], parts[2], parts[3]
+			guestName, authStatus, guestPubKey := "Unknown", "Offline", ""
+			if len(parts) >= 7 {
+				guestName, authStatus, guestPubKey = parts[4], parts[5], parts[6]
+			}
+
 			globalMu.RLock()
 			group, exists := groups[grp]
 			globalMu.RUnlock()
@@ -281,8 +255,8 @@ func handleConnection(conn net.Conn) {
 				hostConn, hostExists := group.hosts[target]
 				if hostExists {
 					sessionID := generateSessionID()
-					group.pendingSessions[sessionID] = Session{guestConn: conn}
-					hostConn.Write([]byte(fmt.Sprintf("INCOMING|%s\n", sessionID)))
+					group.pendingSessions[sessionID] = Session{guestConn: conn, createdAt: time.Now()}
+					hostConn.Write([]byte(fmt.Sprintf("INCOMING|%s|%s|%s|%s\n", sessionID, guestName, authStatus, guestPubKey)))
 					group.mu.Unlock()
 					return 
 				}
@@ -295,6 +269,11 @@ func handleConnection(conn net.Conn) {
 	case "HOST_ACCEPT":
 		if len(parts) >= 4 {
 			grp, pwd, sessionID := parts[1], parts[2], parts[3]
+			hostPubKey := ""
+			if len(parts) >= 5 {
+				hostPubKey = parts[4]
+			}
+
 			globalMu.RLock()
 			group, exists := groups[grp]
 			globalMu.RUnlock()
@@ -305,7 +284,7 @@ func handleConnection(conn net.Conn) {
 					delete(group.pendingSessions, sessionID)
 					group.mu.Unlock()
 					guestConn := session.guestConn
-					guestConn.Write([]byte("OK\n"))
+					guestConn.Write([]byte(fmt.Sprintf("OK|%s\n", hostPubKey)))
 					go pipe(conn, guestConn)
 					go pipe(guestConn, conn)
 					return
